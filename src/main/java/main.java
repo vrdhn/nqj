@@ -22,7 +22,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger ;
-
+import java.util.HashSet;
 
 class BoardSupplier implements Supplier<byte[]>
 {
@@ -96,8 +96,28 @@ class BoardFilters
 	return true;
     }
 
+    public boolean try_ref_ver(final byte[] in, byte [] out) {
+	byte max = (byte)(in.length -1);
+	for ( byte j = 0 ; j <= max ; j ++ ) {
+	    out[j] = (byte)(max - in[j]);
+	    if( out[j] > in[j] )
+		return false;
+	}
+	return true;
+    }
+    
+    public boolean try_ref_hor(final byte[] in, byte [] out) {
+	byte max = (byte)(in.length -1);
+	for ( byte j = 0 ; j <= max ; j ++ ) {
+	    out[j] = in[max-j];
+	}
+	for ( byte j = 0 ; j <= max ; j ++ ) {
+	    if( out[j] > in[j] )
+		return false;
+	}
+	return true;
+    }
     // generate all equivalents and return the smallest one.
-    // save some memory as well
     public byte[] canonical(final byte[] thing ) {
     	// 11 out of 12 .. ret will be different than arg.
     	byte[] ret = thing.clone();
@@ -105,9 +125,9 @@ class BoardFilters
     	
     	byte[] tmp;		// For swapping
     
-    	if ( try_rot90( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
-    	if ( try_rot180( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
-    	if ( try_rot270( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
+    	//if ( try_rot90( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
+    	//if ( try_rot180( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
+    	//if ( try_rot270( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
     	if ( try_ref_ver( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
     	if ( try_ref_hor( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
     
@@ -128,23 +148,30 @@ class BoardFilters
 class Main
 {
 
-
+    
     public static void main (String[] args) {
-
+	
 	int size = 8;		// TODO parse from command line, limit to 127
 	AtomicInteger cnt = new AtomicInteger();
 	
 	BoardSupplier bs = new BoardSupplier(8);
 	BoardFilters   bf = new BoardFilters(); // Only to avoid static functions in it.
-
+	
+	HashSet<byte[]> result = new HashSet<byte[]>();
+	
 	Stream.generate(bs)
 	    .filter( e -> bf.is_solution(e)  )
-	    .peek( e-> bf.print(e) )
-	    .peek( e -> System.out.printf("#%d : %s\n",cnt.addAndGet(1),Arrays.toString(e)))
-	    // bad way to stop inf stream; java 9/10 has 
+	    .map( e-> bf.canonical(e) ) 
+	    .peek(e -> result.add(e.clone()) ) // canonical clones;redundant
+	    // bad way to stop inf stream;
 	    .allMatch( e->  bf.is_notlast(e));
 	;
 	
+	int count = 0;
+	for( byte[] e : result ) {
+	    System.out.printf("#%d : %s\n",count++,Arrays.toString(e));
+	    //bf.print(e);
+	}
 	
 	System.out.println("Yeah1");
     }
