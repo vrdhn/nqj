@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger ;
 import java.util.HashSet;
+import java.util.function.Function;
 
 class BoardSupplier implements Supplier<byte[]>
 {
@@ -46,6 +47,11 @@ class BoardSupplier implements Supplier<byte[]>
 	}       
 	return current;
     }
+}
+
+interface xform {
+    // converted to byte
+    int xform(final byte[] input, int max, int offset);
 }
 
 class BoardFilters
@@ -83,6 +89,7 @@ class BoardFilters
 		// three queen in same line.
 		// (x1-x2)/(x2-x3) == (y1-y2)/(y2-y3)
 		// =>(x1-x2)*(y2-y3) == (y1-y2)*/(x2-x3)
+		if(false)
 		for( byte x3 = 0 ; x3 < x2 ; x3 ++ ) {		    
 		    byte y3 = thing[x3];
 
@@ -96,24 +103,15 @@ class BoardFilters
 	return true;
     }
 
-    public boolean try_ref_ver(final byte[] in, byte [] out) {
+
+    public boolean try_op(final byte[] in, byte [] out,xform op) {
 	byte max = (byte)(in.length -1);
+	
+	if ( (byte)(op.xform(in,max,0)) > in[0] )
+	    return false;
+	
 	for ( byte j = 0 ; j <= max ; j ++ ) {
-	    out[j] = (byte)(max - in[j]);
-	    if( out[j] > in[j] )
-		return false;
-	}
-	return true;
-    }
-    
-    public boolean try_ref_hor(final byte[] in, byte [] out) {
-	byte max = (byte)(in.length -1);
-	for ( byte j = 0 ; j <= max ; j ++ ) {
-	    out[j] = in[max-j];
-	}
-	for ( byte j = 0 ; j <= max ; j ++ ) {
-	    if( out[j] > in[j] )
-		return false;
+	    out[j] = (byte)(op.xform(in,max,j));
 	}
 	return true;
     }
@@ -124,13 +122,34 @@ class BoardFilters
     	byte[] alt = thing.clone();
     	
     	byte[] tmp;		// For swapping
-    
-    	//if ( try_rot90( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
-    	//if ( try_rot180( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
-    	//if ( try_rot270( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}	
-    	if ( try_ref_ver( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
-    	if ( try_ref_hor( ret, alt) ) { tmp = ret; ret = alt ; alt = tmp;}
-    
+
+	// reflect horizontally
+	if( try_op(ret,alt,(arr,max,idx) -> arr[max-idx]) )
+	    { tmp = ret; ret = alt ; alt = tmp;}
+
+	// reflect vertically, irrelvant because of way we generate
+	//if( try_op(ret,alt,(arr,max,idx) -> max-arr[idx]) )
+	//    { tmp = ret; ret = alt ; alt = tmp;}
+
+	// clocksize 90
+	if( try_op(ret,alt,(arr,max,idx) -> {
+		    for ( int j = 0 ; j <= max ; j ++ )
+			if ( max-idx == arr[j] )
+			    return j;
+		    return max + 1;
+		}))
+	    { tmp = ret; ret = alt ; alt = tmp;}
+
+	// clocksize 270
+	if( try_op(ret,alt,(arr,max,idx) -> {
+		    for ( int j = 0 ; j <= max ; j ++ )
+			if ( idx == arr[j] )
+			    return max-j;
+		    return max + 1;
+		}))
+	    { tmp = ret; ret = alt ; alt = tmp;}
+	
+	
     	return ret;
     }
 
