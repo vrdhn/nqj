@@ -6,14 +6,6 @@ package net.vardhan.nq;
  *   byte [], length equal to size of board, each value is offset from base
  *           whether index/value is x/y coordinate is immaterial.
  *           (yes, we are toast if two types of pieces are to be placed )
- * 
- *  Since 'Board' isn't a proper class, a BoardOps is static class 
- *    which implements several operations.
- * 
- *  All in all, the stuff is concurrency enabled, so parallel/stream can be 
- *  deployed here.
- *
- * 
  *      
  *    
  * 
@@ -21,10 +13,15 @@ package net.vardhan.nq;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicInteger ;
 import java.util.HashSet;
 import java.util.function.Function;
+import java.util.ArrayList;
 
+
+/*
+ * Generate n! boards
+ *   
+ */
 class BoardSupplier implements Supplier<byte[]>
 {
     private byte[] current;
@@ -35,43 +32,32 @@ class BoardSupplier implements Supplier<byte[]>
     }
     
     public byte[] get() {
-	// all zeros generate as last value, BoardFilter::is_allzero
 	int sz = current.length;
-	for( int j = 0 ; j < sz; j ++ ) {
-	    if ( current[j] != sz -1 ) {
-		current[j]++;
-		break;
-	    } else {
-		current[j] = 0;
+	boolean horizontal_check = true;
+	while ( horizontal_check == true ) {
+	    for( int j = 0 ; j < sz; j ++ ) {
+		if ( current[j] != sz -1 ) {
+		    current[j]++;
+		    break;
+		} else {
+		    current[j] = 0;
+		}		
 	    }
-	}       
-	return current;
+	    // do horizontal check
+	    horizontal_check = false;
+	    for( int j = 0 ; j < sz; j ++ )
+		for( int k = 0 ; k < j ; k ++ )
+		    if ( current[j] == current[k] )
+			horizontal_check = true;
+	}
+	return current.clone();
     }
-}
-
-interface xform {
-    // converted to byte
-    int xform(final byte[] input, int max, int offset);
 }
 
 class BoardFilters
 {
 
-    /** Repeat Check **/
-    private byte[] seen;
-
-    public boolean is_notlast( final byte[] thing ) {
-	if ( seen == null ) { // actually the first ?
-	    seen = thing.clone();
-	    return true;
-	} else {
-	    for (int j= 0 ; j < seen.length ; j++ )
-		if ( thing[j] != seen[j] ) return true;
-	    return false;
-	}	
-    }
-    
-    
+        
     public boolean is_solution(final byte[] thing) {
 	for( byte x1 = 0 ; x1 < thing.length ; x1 ++ )
 	    for( byte x2 = 0 ; x2 < x1 ; x2 ++ ) {
@@ -80,16 +66,17 @@ class BoardFilters
 		
 		int dx1x2 = x1 - x2;
 		int dy1y2 = y1 - y2;
-		// horizontally same ?
-		if  ( dy1y2 == 0 )
-		    return false;
+		
+		// horizontally same : not needed already done by generate
+		//if  ( dy1y2 == 0 )
+		//    return false;
+		
 		// diagonally same ?
 		if ( dy1y2 == dx1x2 || dy1y2 == -dx1x2 )
 		    return false;
 		// three queen in same line.
 		// (x1-x2)/(x2-x3) == (y1-y2)/(y2-y3)
 		// =>(x1-x2)*(y2-y3) == (y1-y2)*/(x2-x3)
-		if(false)
 		for( byte x3 = 0 ; x3 < x2 ; x3 ++ ) {		    
 		    byte y3 = thing[x3];
 
@@ -104,94 +91,149 @@ class BoardFilters
     }
 
 
-    public boolean try_op(final byte[] in, byte [] out,xform op) {
-	byte max = (byte)(in.length -1);
+    /* rotate by 90 degrees */
+    public byte[] rot(final byte[] in) {
 	
-	if ( (byte)(op.xform(in,max,0)) > in[0] )
-	    return false;
-	
-	for ( byte j = 0 ; j <= max ; j ++ ) {
-	    out[j] = (byte)(op.xform(in,max,j));
+	byte max = (byte)(in.length -1);	
+	byte [] ret = new byte[in.length];
+
+	for( int j  = 0 ; j < in.length ; j ++ )
+	    ret [ max-in[j] ] = (byte)j;
+
+	// assert that it's still a solution..
+	if ( false == is_solution(ret) ) {
+	    System.out.println("rot Fails");
+	    System.exit(1);
 	}
-	return true;
+	
+	return ret;
+    }
+    /* reflect horizontally */
+    public byte[] rfl(final byte[] in) {
+	
+	byte max = (byte)(in.length -1);	
+	byte [] ret = new byte[in.length];
+
+	for( int j  = 0 ; j < in.length ; j ++ )
+	    ret [ j ] = in[max-j];
+
+	// assert that it's still a solution..
+	if ( false == is_solution(ret) ) {
+	    System.out.println("refl0 Fails");
+	    System.exit(1);
+	}
+	
+	return ret;
+    }
+    
+    public boolean less_than( final byte[] a, final byte [] b) {
+	for ( int j = 0; j < a.length ; j ++ ) {
+	    if ( a[j] < b[j] ) return false;
+	    if ( a[j] > b[j] ) return true;
+	}
+	return false;
     }
     // generate all equivalents and return the smallest one.
-    public byte[] canonical(final byte[] thing ) {
-    	// 11 out of 12 .. ret will be different than arg.
-    	byte[] ret = thing.clone();
-    	byte[] alt = thing.clone();
-    	
-    	byte[] tmp;		// For swapping
+    // TODO: reduce garbage generation, reuse byte[]
+    // TODO: merge less_than with rot/rfl for lesser garbage & speed
+    public byte[] canonical(final byte[] orig ) {
 
-	// reflect horizontally
-	if( try_op(ret,alt,(arr,max,idx) -> arr[max-idx]) )
-	    { tmp = ret; ret = alt ; alt = tmp;}
-
-	// reflect vertically, irrelvant because of way we generate
-	//if( try_op(ret,alt,(arr,max,idx) -> max-arr[idx]) )
-	//    { tmp = ret; ret = alt ; alt = tmp;}
-
-	// clocksize 90
-	if( try_op(ret,alt,(arr,max,idx) -> {
-		    for ( int j = 0 ; j <= max ; j ++ )
-			if ( max-idx == arr[j] )
-			    return j;
-		    return max + 1;
-		}))
-	    { tmp = ret; ret = alt ; alt = tmp;}
-
-	// clocksize 270
-	if( try_op(ret,alt,(arr,max,idx) -> {
-		    for ( int j = 0 ; j <= max ; j ++ )
-			if ( idx == arr[j] )
-			    return max-j;
-		    return max + 1;
-		}))
-	    { tmp = ret; ret = alt ; alt = tmp;}
 	
+	byte[] rot0 = orig.clone();
+	byte[] rot1 = rot(rot0);
+	byte[] rot2 = rot(rot1);
+	byte[] rot3 = rot(rot2);
 	
+	byte[] rfl0 = rfl(rot0);
+	byte[] rfl1 = rfl(rot1);
+	byte[] rfl2 = rfl(rot2);
+	byte[] rfl3 = rfl(rot3);
+
+	
+	byte[] ret = rot0;
+	if( less_than(ret, rot1) ) ret = rot1;	
+	if( less_than(ret, rot2) ) ret = rot2;	
+	if( less_than(ret, rot3) ) ret = rot3;
+	if( less_than(ret, rfl0) ) ret = rfl0;
+	if( less_than(ret, rfl1) ) ret = rfl1;
+	if( less_than(ret, rfl2) ) ret = rfl2;
+	if( less_than(ret, rfl3) ) ret = rfl3;
+
+
+	//System.out.println("<===");
+	//System.out.println(Arrays.toString(rot0));
+	//System.out.println(Arrays.toString(rfl0));
+	//
+	//System.out.println(Arrays.toString(rot1));
+	//System.out.println(Arrays.toString(rfl1));
+	//
+	//System.out.println(Arrays.toString(rot2));
+	//System.out.println(Arrays.toString(rfl2));
+	//
+	//System.out.println(Arrays.toString(rot3));
+	//System.out.println(Arrays.toString(rfl3));
+	//
+	//System.out.println(Arrays.toString(ret));
+	//System.out.println("===>");
+       
     	return ret;
     }
 
-    public void print(final byte[] thing) {
-	for ( int j = 0 ; j < 8 ; j ++ ) {
-	    for ( int k = 0 ; k < thing[j] ; k ++ ) System.out.print('.');
-	    System.out.print('Q');
-	    for( int k = thing[j] + 1 ; k < 8 ; k ++ ) System.out.print('.');
-	    System.out.print('\n');
-	}
-    }
 }
 
  
 class Main
 {
 
+    // HashSet need this to work properly!
+    private static ArrayList<Byte> asALB(final byte[] arr) {
+	ArrayList<Byte> ret = new ArrayList<Byte>();
+	for ( byte b : arr )
+	    ret.add(b);
+	return ret;
+    }
+
+    // print it out.
+    private static void print(final ArrayList<Byte> thing) {
+	for ( int j = 0 ; j < 8 ; j ++ ) {
+	    for ( int k = 0 ; k < thing.get(j) ; k ++ ) System.out.print('.');
+	    System.out.print('Q');
+	    for( int k = thing.get(j) + 1 ; k < 8 ; k ++ ) System.out.print('.');
+	    System.out.print('\n');
+	}
+    }
+
+    // need to limit the infinite generator
+    private static int fact(int sz) {
+	int pro = 1;
+	for( ; sz > 1 ; sz-- )
+	    pro *= sz;
+	return  pro;
+    }
     
     public static void main (String[] args) {
 	
-	int size = 8;		// TODO parse from command line, limit to 127
-	AtomicInteger cnt = new AtomicInteger();
+	final int size = 8;		// TODO parse from command line, limit to 127
 	
-	BoardSupplier bs = new BoardSupplier(8);
-	BoardFilters   bf = new BoardFilters(); // Only to avoid static functions in it.
-	
-	HashSet<byte[]> result = new HashSet<byte[]>();
-	
-	Stream.generate(bs)
+	BoardSupplier bs = new BoardSupplier(size);
+	BoardFilters   bf = new BoardFilters(); // Only to avoid static functions
+
+	// byte[] can't be added to HashSet !
+	HashSet<ArrayList<Byte>> result = Stream.generate(bs)
+	    .limit(fact(size))	
 	    .filter( e -> bf.is_solution(e)  )
-	    .map( e-> bf.canonical(e) ) 
-	    .peek(e -> result.add(e.clone()) ) // canonical clones;redundant
-	    // bad way to stop inf stream;
-	    .allMatch( e->  bf.is_notlast(e));
-	;
+	    .map( e-> bf.canonical(e) )
+	    .reduce(new HashSet<ArrayList<Byte>>(),
+		    (hs,e) -> {hs.add(asALB(e)); return hs ; },
+		    (hs1,hs2) -> {hs1.addAll(hs2); return hs1;})
+	    ;
 	
 	int count = 0;
-	for( byte[] e : result ) {
-	    System.out.printf("#%d : %s\n",count++,Arrays.toString(e));
-	    //bf.print(e);
+	for( ArrayList<Byte> e : result ) {
+	    System.out.printf("#%d : %s\n",count++,e);
+	    print(e);
 	}
 	
-	System.out.println("Yeah1");
+	System.out.println("Yeah!");
     }
 }
